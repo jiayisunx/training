@@ -169,14 +169,15 @@ def main():
     data_time = AverageMeter()
     losses = AverageMeter()
     ctc_time = AverageMeter()
+    eve_batch_time = 0
 
     for epoch in range(start_epoch, params.epochs):
         model.train()
         end = time.time()
-        for i, (data) in enumerate(train_loader, start=start_iter):
-            if i == len(train_loader):
+        for i, (data) in enumerate(test_loader, start=start_iter):
+            if i == len(test_loader):
                 break
-            inputs, targets, input_percentages, target_sizes = data
+            inputs, targets, input_percentages, target_sizes = data # inputs: torch.Size([8, 1, 161, 1])
             # measure data loading time
             data_time.update(time.time() - end)
             inputs = Variable(inputs, requires_grad=False)
@@ -224,22 +225,29 @@ def main():
             batch_time.update(time.time() - end)
             end = time.time()
 
-            print('Epoch: [{0}][{1}/{2}]\t'
-                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                  'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-                  'CTC Time {ctc_time.val:.3f} ({ctc_time.avg:.3f})\t'
-                  'Loss {loss.val:.4f} ({loss.avg:.4f})\t'.format(
-                (epoch + 1), (i + 1), len(train_loader), batch_time=batch_time,
-                data_time=data_time, ctc_time=ctc_time, loss=losses))
-
+            # reduce print frequance
+            if i % 100 == 0:
+                print('Epoch: [{0}][{1}/{2}]\t'
+                    'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                    'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
+                    'CTC Time {ctc_time.val:.3f} ({ctc_time.avg:.3f})\t'
+                    'Loss {loss.val:.4f} ({loss.avg:.4f})\t'.format(
+                    (epoch + 1), (i + 1), len(test_loader), batch_time=batch_time,
+                    data_time=data_time, ctc_time=ctc_time, loss=losses))
+                if args.checkpoint:
+                    model_path = '%s/deepspeech_%d.pth' % (save_folder, epoch + 1)
+                    torch.save(model, model_path)
             del loss
             del out
 
-        avg_loss /= len(train_loader)
-
+        avg_loss /= len(test_loader)
+        eve_batch_time = batch_time.sum - eve_batch_time
         print('Training Summary Epoch: [{0}]\t'
             'Average Loss {loss:.3f}\t'
-            .format( epoch + 1, loss=avg_loss, ))
+            'Total time {time:.3f}\t'
+            'Total examples {size:.3f}\t'
+            .format( epoch + 1, loss=avg_loss, time=eve_batch_time, 
+            size=len(test_loader) * params.batch_size))
 
         start_iter = 0  # Reset start iteration for next epoch
         total_cer, total_wer = 0, 0
