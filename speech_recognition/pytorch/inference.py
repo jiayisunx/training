@@ -31,7 +31,7 @@ from eval_model import  eval_model
 ###########################################################
 parser = argparse.ArgumentParser(description='DeepSpeech inference')
 
-parser.add_argument('--model_path', default='models/deepspeech_1.pth',
+parser.add_argument('--model_path', default='models/deepspeech_10.pth',
                     help='Location to save best validation model')
 
 parser.add_argument('--seed', default=0xdeadbeef, type=int, help='Random Seed')
@@ -100,7 +100,7 @@ def main():
                                       normalize=True, augment=False)
     # train_loader = AudioDataLoader(train_dataset, batch_size=params.batch_size,
     #                                num_workers=1)
-    test_loader = AudioDataLoader(test_dataset, batch_size=params.batch_size,
+    test_loader = AudioDataLoader(test_dataset, batch_size=args.batch_size,
                                   num_workers=1)
 
     rnn_type = params.rnn_type.lower()
@@ -200,7 +200,7 @@ def main():
         del loss
         del out
     
-    data_size = params.batch_size * len(test_loader)
+    data_size = args.batch_size * len(test_loader)
     print(' Total time: {time:.3f}\t'
             'Total test_data size {data_size:.3f}\t'.format(
            time=inference_time, data_size=data_size))

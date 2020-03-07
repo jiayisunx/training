@@ -21,10 +21,8 @@ cuda = False
 
 # Dataset location
 labels_path    = '../labels.json' #Contains all characters for prediction
-#train_manifest = '../libri_train_manifest.csv' #relative path to train manifest is download_dataset is used
-#val_manifest = '../libri_val_manifest.csv' #relative path to val manifest is download_dataset is used
-train_manifest = '/lustre/dataset/deepspeech/libri_train_manifest.csv'
-val_manifest = '/lustre/dataset/deepspeech/libri_val_manifest.csv' 
+train_manifest = '../libri_train_manifest.csv' #relative path to train manifest is download_dataset is used
+val_manifest = '../libri_val_manifest.csv' #relative path to val manifest is download_dataset is used
 
 # Model parameters
 hidden_size   = 2560 # Hidden size of RNNs
@@ -34,7 +32,7 @@ rnn_type      = 'gru' #Type of the RNN. rnn|gru|lstm are supported
 rnn_act_type  = 'tanh' #Type of the activation within RNN. tanh | relu are supported
 
 # Training parameters
-epochs          = 5 # Number of training epochs, default is 10
+epochs          = 10 # Number of training epochs
 learning_anneal = 1.1 # Annealing applied to learning rate every epoch
 lr              = 0.0001 # initial learning rate
 momentum        = 0.9 # momentum

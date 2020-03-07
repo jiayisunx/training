@@ -35,12 +35,11 @@ parser.add_argument('--save_folder', default='models/', help='Location to save e
 parser.add_argument('--model_path', default='models/deepspeech_final.pth.tar',
                     help='Location to save best validation model')
 parser.add_argument('--continue_from', default='', help='Continue from checkpoint model')
-
 parser.add_argument('--seed', default=0xdeadbeef, type=int, help='Random Seed')
-
 parser.add_argument('--acc', default=23.0, type=float, help='Target WER')
-
 parser.add_argument('--start_epoch', default=-1, type=int, help='Number of epochs at which to start from')
+parser.add_argument('--batch_size', default=8, type=int, help='Training batch size.')
+parser.add_argument('--epochs', default=10, type=int, help='Total Training epochs.')
 
 def to_np(x):
     return x.data.cpu().numpy()
@@ -85,7 +84,7 @@ def main():
 
     save_folder = args.save_folder
 
-    loss_results, cer_results, wer_results = torch.Tensor(params.epochs), torch.Tensor(params.epochs), torch.Tensor(params.epochs)
+    loss_results, cer_results, wer_results = torch.Tensor(args.epochs), torch.Tensor(args.epochs), torch.Tensor(args.epochs)
     best_wer = None
     try:
         os.makedirs(save_folder)
@@ -110,9 +109,9 @@ def main():
                                        normalize=True, augment=params.augment)
     test_dataset = SpectrogramDataset(audio_conf=audio_conf, manifest_filepath=params.val_manifest, labels=labels,
                                       normalize=True, augment=False)
-    train_loader = AudioDataLoader(train_dataset, batch_size=params.batch_size,
+    train_loader = AudioDataLoader(train_dataset, batch_size=args.batch_size,
                                    num_workers=1)
-    test_loader = AudioDataLoader(test_dataset, batch_size=params.batch_size,
+    test_loader = AudioDataLoader(test_dataset, batch_size=args.batch_size,
                                   num_workers=1)
 
     rnn_type = params.rnn_type.lower()
@@ -169,9 +168,10 @@ def main():
     data_time = AverageMeter()
     losses = AverageMeter()
     ctc_time = AverageMeter()
-    eve_batch_time = 0
+    last_batch_time = 0
+    cur_batch_time = 0
 
-    for epoch in range(start_epoch, params.epochs):
+    for epoch in range(start_epoch, args.epochs):
         model.train()
         end = time.time()
         for i, (data) in enumerate(test_loader, start=start_iter):
@@ -241,13 +241,14 @@ def main():
             del out
 
         avg_loss /= len(test_loader)
-        eve_batch_time = batch_time.sum - eve_batch_time
+        cur_batch_time = batch_time.sum - last_batch_time
+        last_batch_time = batch_time.sum
         print('Training Summary Epoch: [{0}]\t'
             'Average Loss {loss:.3f}\t'
             'Total time {time:.3f}\t'
             'Total examples {size:.3f}\t'
-            .format( epoch + 1, loss=avg_loss, time=eve_batch_time, 
-            size=len(test_loader) * params.batch_size))
+            .format( epoch + 1, loss=avg_loss, time=cur_batch_time, 
+            size=len(test_loader) * args.batch_size))
 
         start_iter = 0  # Reset start iteration for next epoch
         total_cer, total_wer = 0, 0
