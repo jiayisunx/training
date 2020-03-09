@@ -162,6 +162,8 @@ def coco_eval(model, coco, cocoGt, encoder, inv_map,
 
     print("")
     model.eval()
+    if os.environ.get('USE_MKLDNN') == "1":
+        model = mkldnn_utils.to_mkldnn(model)
     if use_cuda:
         model.cuda()
     ret = []
@@ -192,6 +194,8 @@ def coco_eval(model, coco, cocoGt, encoder, inv_map,
                 with torch.no_grad():
                     print("Parsing image: {}/{}".format(idx+1, totle_iter + args.perf_prerun_warmup))
                     inp = img.unsqueeze(0)
+                    if os.environ.get('USE_MKLDNN') == "1":
+                        inp = inp.to_mkldnn()
                     if use_cuda:
                         inp = inp.cuda()
 
@@ -240,6 +244,8 @@ def coco_eval(model, coco, cocoGt, encoder, inv_map,
             with torch.no_grad():
                 print("Parsing image: {}/{}".format(idx+1, totle_iter + args.perf_prerun_warmup))
                 inp = img.unsqueeze(0)
+                if os.environ.get('USE_MKLDNN') == "1":
+                    inp = inp.to_mkldnn()
                 if use_cuda:
                     inp = inp.cuda()
 
@@ -379,11 +385,7 @@ def eval300_mlperf_coco(args):
     if args.checkpoint is not None:
         print("loading model checkpoint", args.checkpoint)
         od = torch.load(args.checkpoint)
-        if os.environ.get('USE_MKLDNN') == "1":
-            ssd = mkldnn_utils.to_dense(ssd)
         ssd.load_state_dict(od["model"])
-        if os.environ.get('USE_MKLDNN') == "1":
-            ssd = mkldnn_utils.to_mkldnn(ssd)
 
     if use_cuda:
         ssd.cuda()
@@ -473,8 +475,6 @@ def train300_mlperf_coco(args):
         train_coco = COCODetection(train_coco_root, train_annotate, train_trans)
         cocoGt = COCO(annotation_file=val_annotate)
 
-    #print("Number of labels: {}".format(train_coco.labelnum))
-
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_coco)
         val_sampler = torch.utils.data.distributed.DistributedSampler(val_coco)
@@ -507,11 +507,7 @@ def train300_mlperf_coco(args):
     if args.checkpoint is not None:
         print("loading model checkpoint", args.checkpoint)
         od = torch.load(args.checkpoint)
-        if os.environ.get('USE_MKLDNN') == "1":
-            ssd = mkldnn_utils.to_dense(ssd)
         ssd.load_state_dict(od["model"])
-        if os.environ.get('USE_MKLDNN') == "1":
-            ssd = mkldnn_utils.to_mkldnn(ssd)
 
     ssd.train()
     if use_cuda:
@@ -578,6 +574,8 @@ def train300_mlperf_coco(args):
         if os.environ.get('PROFILE') == "1":
             with torch.autograd.profiler.profile() as prof:
                 for nbatch, (img, img_size, bbox, label) in enumerate(train_dataloader):
+                    if os.environ.get('USE_MKLDNN') == "1":
+                        img = img.to_mkldnn()
                     if use_cuda:
                         img = img.cuda()
                     img = Variable(img, requires_grad=False)
@@ -613,6 +611,8 @@ def train300_mlperf_coco(args):
             prof.export_chrome_trace('result.json')
         else:
             for nbatch, (img, img_size, bbox, label) in enumerate(train_dataloader):
+                if os.environ.get('USE_MKLDNN') == "1":
+                    img = img.to_mkldnn()
                 if use_cuda:
                     img = img.cuda()
                 img = Variable(img, requires_grad=False)
@@ -688,12 +688,8 @@ def train300_mlperf_coco(args):
                 if not args.no_save:
                     print("")
                     print("saving model...")
-                    if os.environ.get('USE_MKLDNN') == "1":
-                        ssd = mkldnn_utils.to_dense(ssd)
                     torch.save({"model" : ssd.state_dict(), "label_map": train_coco.label_info},
                                "./models/iter_{}.pt".format(iter_num))
-                    if os.environ.get('USE_MKLDNN') == "1":
-                        ssd = mkldnn_utils.to_mkldnn(ssd)
 
                 if coco_eval(ssd, val_coco, cocoGt, encoder, inv_map, epoch + 1,iter_num, args, use_cuda):
                     success = torch.ones(1)

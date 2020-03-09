@@ -47,11 +47,11 @@ export OMP_SCHEDULE=STATIC OMP_NUM_THREADS=$NUM_THREADS OMP_DISPLAY_ENV=TRUE OMP
 export OMP_NUM_THREADS=$NUM_THREADS  KMP_AFFINITY=proclist=[$startid-$endid],granularity=fine,explicit
 export DATASET_DIR="/lustre/dataset/COCO2017"
 # export TORCH_MODEL_ZOO="/data/torchvision"
-export USE_MKLDNN=0
+export USE_MKLDNN=1
 #export USE_JIT=1
 #export PROFILE=1   # profiling for the whole iteration
 #export PROFILE_ITER=1  # profiling for each iteration
-#export MKLDNN_VERBOSE=1
+# export MKLDNN_VERBOSE=1
 
 python performance_test.py \
   -a $ARCH \

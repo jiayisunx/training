@@ -20,8 +20,6 @@ class SSD_R34(nn.Module):
         self.strides = strides
         if backbone == 'resnet34':
             self.model = ResNet34()
-            if os.environ.get('USE_MKLDNN') == "1":
-                self.model = mkldnn_utils.to_mkldnn(self.model)
             out_channels = 256
             self.out_chan = [out_channels, 512, 512, 256, 256, 256]
         else:
@@ -43,10 +41,6 @@ class SSD_R34(nn.Module):
         self.conf = nn.ModuleList(self.conf)
         # intitalize all weights
         self._init_weights()
-        if os.environ.get('USE_MKLDNN') == "1":
-            self.additional_blocks = mkldnn_utils.to_mkldnn(self.additional_blocks)
-            self.loc = mkldnn_utils.to_mkldnn(self.loc)
-            self.conf = mkldnn_utils.to_mkldnn(self.conf)
 
     def _build_additional_features(self, input_channels):
         idx = 0
@@ -113,7 +107,7 @@ class SSD_R34(nn.Module):
         ret = []
         features_shapes = []
         for s, l, c in zip(src, loc, conf):
-            if os.environ.get('USE_MKLDNN') == "1":
+            if c(s).is_mkldnn:
                 ret.append((l(s).to_dense().view(s.size(0), 4, -1), c(s).to_dense().view(s.size(0), self.label_num, -1)))
             else:
                 ret.append((l(s).view(s.size(0), 4, -1), c(s).view(s.size(0), self.label_num, -1)))
@@ -126,10 +120,7 @@ class SSD_R34(nn.Module):
         return locs, confs,features_shapes
 
     def forward(self, data,extract_shapes=False):
-        if os.environ.get('USE_MKLDNN') == "1":
-            layers = self.model(data.to_mkldnn())
-        else:
-            layers = self.model(data)
+        layers = self.model(data)
 
         # last result from network goes into additional blocks
         x = layers[-1]
