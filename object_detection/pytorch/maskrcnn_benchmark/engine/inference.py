@@ -5,6 +5,7 @@ import time
 import os
 
 import torch
+from torch.utils import mkldnn as mkldnn_utils
 from tqdm import tqdm
 
 from maskrcnn_benchmark.data.datasets.evaluation import evaluate
@@ -16,6 +17,8 @@ from ..utils.timer import Timer, get_time_str
 
 def compute_on_dataset(model, data_loader, device, log_path, timer=None):
     model.eval()
+    if os.environ.get('USE_MKLDNN') == "1":
+        model = mkldnn_utils.to_mkldnn(model)
     results_dict = {}
     cpu_device = torch.device("cpu")
 
@@ -84,7 +87,8 @@ def inference(
         expected_results_sigma_tol=4,
         output_folder=None,
         log_path='./log/',
-        warmup=0
+        warmup=0,
+        performance_only=False
 ):
     # convert to a torch.device for efficiency
     device = torch.device(device)
@@ -130,7 +134,7 @@ def inference(
     )
 
     predictions = _accumulate_predictions_from_multiple_gpus(predictions)
-    if not is_main_process():
+    if not is_main_process() or performance_only:
         return
 
     if output_folder:

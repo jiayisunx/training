@@ -29,9 +29,10 @@ echo "STARTING TIMING RUN AT $start_fmt"
 # run benchmark
 set -x
 MODE=inference
-BATCH_SIZE=4
+BATCH_SIZE=1
 WARMUP=5
 ITERATIONS=${ITERATIONS:-10}
+PERFORMANCE_ONLY=False # (True)only test performance, no accuracy, (False) test performance and accuracy. 
 
 CORES=`lscpu | grep Core | awk '{print $4}'`
 SOCKETS=`lscpu | grep Socket | awk '{print $2}'`
@@ -48,7 +49,7 @@ for i in $(seq 0 $(($TOTAL_CORES / $NUM_THREADS - 1)))
 do
 echo $i "instance"
 export PROFILE=0 #used to control profile, open(1) and close(0)
-export USE_MKLDNN=0 #used to enable MKLDNN OP, MKLDNN(1), CPU(0)
+export USE_MKLDNN=1 #used to enable MKLDNN OP, MKLDNN(1), CPU(0)
 startid=$(($i*$NUM_THREADS))
 endid=$(($i*$NUM_THREADS+$NUM_THREADS-1))
 export OMP_SCHEDULE=STATIC OMP_NUM_THREADS=$NUM_THREADS OMP_DISPLAY_ENV=TRUE OMP_PROC_BIND=TRUE GOMP_CPU_AFFINITY="$startid-$endid"  
@@ -58,11 +59,15 @@ if [ $MODE = training ]; then
     export TRAIN=1
     PROFILE_DIR="./log/train/${i}/"
     time python tools/train_mlperf.py --log ${PROFILE_DIR} --config-file "configs/e2e_mask_rcnn_R_50_FPN_1x.yaml" \
-           DATALOADER.NUM_WORKERS 1 SOLVER.IMS_PER_BATCH $BATCH_SIZE TEST.IMS_PER_BATCH $BATCH_SIZE SOLVER.MAX_ITER ${ITERATIONS} SOLVER.STEPS "(480000, 640000)" SOLVER.BASE_LR 0.0025 MODEL.DEVICE cpu &
+        DATALOADER.NUM_WORKERS 1 SOLVER.IMS_PER_BATCH $BATCH_SIZE TEST.IMS_PER_BATCH $BATCH_SIZE \
+        SOLVER.MAX_ITER ${ITERATIONS} SOLVER.STEPS "(480000, 640000)" SOLVER.BASE_LR 0.0025 MODEL.DEVICE cpu \
+        PER_EPOCH_EVAL $PERFORMANCE_ONLY&
 else
     export TRAIN=0
     PROFILE_DIR="./log/infer/${i}/"
-    time python tools/test_net.py --warmup $WARMUP --iters ${ITERATIONS} --log ${PROFILE_DIR} --config-file "configs/e2e_mask_rcnn_R_50_FPN_1x.yaml" DATALOADER.NUM_WORKERS 1 SOLVER.MAX_ITER ${ITERATIONS} TEST.IMS_PER_BATCH $BATCH_SIZE MODEL.DEVICE cpu &
+    time python tools/test_net.py --warmup $WARMUP --iters ${ITERATIONS} --log ${PROFILE_DIR} --config-file "configs/e2e_mask_rcnn_R_50_FPN_1x.yaml" \
+        DATALOADER.NUM_WORKERS 1 SOLVER.MAX_ITER ${ITERATIONS} TEST.IMS_PER_BATCH $BATCH_SIZE MODEL.DEVICE cpu \
+        PER_EPOCH_EVAL $PERFORMANCE_ONLY &
 fi
 done
 set +x

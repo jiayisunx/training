@@ -22,7 +22,7 @@ if os.environ.get('TRAIN') == "1":
             bias = self.bias - self.running_mean * scale
             scale = scale.reshape(1, -1, 1, 1)
             bias = bias.reshape(1, -1, 1, 1)
-            if os.environ.get('USE_MKLDNN') == "1":
+            if x.is_mkldnn:
                 return (x.to_dense() * scale + bias).to_mkldnn()
             else:
                 return x * scale + bias

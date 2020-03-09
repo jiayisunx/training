@@ -77,8 +77,6 @@ def do_train(
                 data_time = time.time() - end
                 arguments["iteration"] = iteration
     
-                scheduler.step()
-
                 images = images.to(device)
                 targets = [target.to(device) for target in targets]
 
@@ -89,10 +87,12 @@ def do_train(
                 loss_dict_reduced = reduce_loss_dict(loss_dict)
                 losses_reduced = sum(loss for loss in loss_dict_reduced.values())
                 meters.update(loss=losses_reduced, **loss_dict_reduced)
+                optimizer.zero_grad()
+
                 losses.backward()
     
                 optimizer.step()
-                optimizer.zero_grad()
+                scheduler.step()
 
                 batch_time = time.time() - end
                 end = time.time()
@@ -166,7 +166,7 @@ def do_train(
             end = time.time()
 
 
-            if iteration % 20 == 0 or iteration == max_iter:
+            if (iteration % 20 == 0 or iteration == max_iter) and (iteration - start_iter) > warmup:
                 eta_seconds = meters.time.global_avg * (iteration - start_iter)
                 eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
                 logger.info(

@@ -191,8 +191,6 @@ def train(cfg, local_rank, distributed, log_path, warmup=0):
         per_iter_callback_fn = None
 
     start_train_time = time.time()
-    if os.environ.get('USE_MKLDNN') == "1":
-        model = mkldnn_utils.to_mkldnn(model)
     do_train(
         model,
         data_loader,
