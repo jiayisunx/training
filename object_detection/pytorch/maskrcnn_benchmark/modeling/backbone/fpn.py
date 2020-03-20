@@ -54,20 +54,29 @@ class FPN(nn.Module):
 
         results = []
         results.append(getattr(self, self.layer_blocks[-1])(last_inner))
-        if os.environ.get('USE_MKLDNN') == "1":
+        if os.environ.get('USE_MKLDNN') == "1" or os.environ.get('USE_BF16') == "1":
             for feature, inner_block, layer_block in zip(
                 x[:-1][::-1], self.inner_blocks[:-1][::-1], self.layer_blocks[:-1][::-1]
             ):
                 if not inner_block:
                     continue
-                last_inner = last_inner.to_dense()
+                if os.environ.get('USE_BF16') == "1":
+                    last_inner = last_inner.to_dense(torch.float)
+                else:
+                    last_inner = last_inner.to_dense()
                 inner_top_down = F.interpolate(last_inner, scale_factor=2, mode="nearest")
                 inner_lateral = getattr(self, inner_block)(feature)
                 # TODO use size instead of scale to make it robust to different sizes
                 # inner_top_down = F.upsample(last_inner, size=inner_lateral.shape[-2:],
                 # mode='bilinear', align_corners=False)
-                last_inner = inner_lateral.to_dense() + inner_top_down
-                last_inner = last_inner.to_mkldnn()
+                if os.environ.get('USE_BF16') == "1":
+                    last_inner = inner_lateral.to_dense(torch.float) + inner_top_down
+                else:
+                    last_inner = inner_lateral.to_dense() + inner_top_down
+                if os.environ.get('USE_BF16') == "1":
+                    last_inner = last_inner.to_mkldnn(torch.bfloat16)
+                else:
+                    last_inner = last_inner.to_mkldnn()
                 results.insert(0, getattr(self, layer_block)(last_inner))
 
             if isinstance(self.top_blocks, LastLevelP6P7):
@@ -78,7 +87,10 @@ class FPN(nn.Module):
                 results.extend(last_results)
 
             for i in range(len(results)):
-                results[i] = results[i].to_dense()
+                if os.environ.get('USE_BF16') == "1":
+                    results[i] = results[i].to_dense(torch.float)
+                else:
+                    results[i] = results[i].to_dense()
 
         else:
             for feature, inner_block, layer_block in zip(

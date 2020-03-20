@@ -17,7 +17,7 @@ from ..utils.timer import Timer, get_time_str
 
 def compute_on_dataset(model, data_loader, device, log_path, timer=None):
     model.eval()
-    if os.environ.get('USE_MKLDNN') == "1":
+    if os.environ.get('USE_MKLDNN') == "1" and os.environ.get('USE_BF16') != "1":
         model = mkldnn_utils.to_mkldnn(model)
     results_dict = {}
     cpu_device = torch.device("cpu")

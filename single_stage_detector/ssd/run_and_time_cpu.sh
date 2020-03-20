@@ -15,10 +15,10 @@ set -x
 MODE="inference"
 BATCH_SIZE=1
 THRESHOLD=0.23
-PERF_PRERUN_WARMUP=5
+PERF_PRERUN_WARMUP=10
 NUMEPOCHS=${NUMEPOCHS:-1}
 LR=${LR:-"2.5e-3"}
-TOTLE_ITERATIONS=${TOTLE_ITERATIONS:-10}
+TOTLE_ITERATIONS=${TOTLE_ITERATIONS:-100}
 ARCH="ssd300"
 DUMMY=0 # (0)real data,(1)dummy data
 
@@ -48,6 +48,7 @@ export OMP_NUM_THREADS=$NUM_THREADS  KMP_AFFINITY=proclist=[$startid-$endid],gra
 export DATASET_DIR="/lustre/dataset/COCO2017"
 # export TORCH_MODEL_ZOO="/data/torchvision"
 export USE_MKLDNN=1
+export USE_BF16=1
 #export USE_JIT=1
 #export PROFILE=1   # profiling for the whole iteration
 #export PROFILE_ITER=1  # profiling for each iteration

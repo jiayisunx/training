@@ -55,7 +55,9 @@ class PostProcessor(nn.Module):
         """
         class_logits, box_regression = x
 
-        if os.environ.get('USE_MKLDNN') == "1":
+        if class_logits.is_mkldnn and class_logits.dtype == torch.bfloat16:
+            class_prob = F.softmax(class_logits.to_dense(torch.float), -1)
+        elif class_logits.is_mkldnn:
             class_prob = F.softmax(class_logits.to_dense(), -1)
         else:
             class_prob = F.softmax(class_logits, -1)
@@ -68,7 +70,11 @@ class PostProcessor(nn.Module):
         if self.cls_agnostic_bbox_reg:
             box_regression = box_regression[:, -4:]
 
-        if os.environ.get('USE_MKLDNN') == "1":
+        if box_regression.is_mkldnn and box_regression.dtype == torch.bfloat16:
+             proposals = self.box_coder.decode(
+                box_regression.to_dense(torch.float).view(sum(boxes_per_image), -1), concat_boxes
+            )
+        elif box_regression.is_mkldnn:
             proposals = self.box_coder.decode(
                 box_regression.to_dense().view(sum(boxes_per_image), -1), concat_boxes
             )

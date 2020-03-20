@@ -138,8 +138,11 @@ class ResNet(nn.Module):
 
     def forward(self, x):
         outputs = []
-        if os.environ.get('USE_MKLDNN') == "1":
-            x = x.to_mkldnn()
+        if os.environ.get('USE_MKLDNN') == "1" or os.environ.get('USE_BF16') == "1":
+            if os.environ.get('USE_BF16') == "1":
+                x = x.to_mkldnn(torch.bfloat16)
+            else:
+                x = x.to_mkldnn()
         x = self.stem(x)
         for stage_name in self.stages:
             x = getattr(self, stage_name)(x)

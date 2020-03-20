@@ -162,7 +162,7 @@ def coco_eval(model, coco, cocoGt, encoder, inv_map,
 
     print("")
     model.eval()
-    if os.environ.get('USE_MKLDNN') == "1":
+    if os.environ.get('USE_MKLDNN') == "1" and os.environ.get('USE_BF16') != "1":
         model = mkldnn_utils.to_mkldnn(model)
     if use_cuda:
         model.cuda()
@@ -194,8 +194,11 @@ def coco_eval(model, coco, cocoGt, encoder, inv_map,
                 with torch.no_grad():
                     print("Parsing image: {}/{}".format(idx+1, totle_iter + args.perf_prerun_warmup))
                     inp = img.unsqueeze(0)
-                    if os.environ.get('USE_MKLDNN') == "1":
-                        inp = inp.to_mkldnn()
+                    if os.environ.get('USE_MKLDNN') == "1" or os.environ.get('USE_BF16') == "1":
+                        if os.environ.get('USE_BF16') == "1":
+                            inp = inp.to_mkldnn(torch.bfloat16)
+                        else:
+                            inp = inp.to_mkldnn()
                     if use_cuda:
                         inp = inp.cuda()
 
@@ -244,8 +247,11 @@ def coco_eval(model, coco, cocoGt, encoder, inv_map,
             with torch.no_grad():
                 print("Parsing image: {}/{}".format(idx+1, totle_iter + args.perf_prerun_warmup))
                 inp = img.unsqueeze(0)
-                if os.environ.get('USE_MKLDNN') == "1":
-                    inp = inp.to_mkldnn()
+                if os.environ.get('USE_MKLDNN') == "1" or os.environ.get('USE_BF16') == "1":
+                    if os.environ.get('USE_BF16') == "1":
+                        inp = inp.to_mkldnn(torch.bfloat16)
+                    else:
+                        inp = inp.to_mkldnn()
                 if use_cuda:
                     inp = inp.cuda()
 
@@ -574,8 +580,11 @@ def train300_mlperf_coco(args):
         if os.environ.get('PROFILE') == "1":
             with torch.autograd.profiler.profile() as prof:
                 for nbatch, (img, img_size, bbox, label) in enumerate(train_dataloader):
-                    if os.environ.get('USE_MKLDNN') == "1":
-                        img = img.to_mkldnn()
+                    if os.environ.get('USE_MKLDNN') == "1" or os.environ.get('USE_BF16') == "1":
+                        if os.environ.get('USE_BF16') == "1":
+                            inp = inp.to_mkldnn(torch.bfloat16)
+                        else:
+                            inp = inp.to_mkldnn()
                     if use_cuda:
                         img = img.cuda()
                     img = Variable(img, requires_grad=False)
@@ -611,8 +620,11 @@ def train300_mlperf_coco(args):
             prof.export_chrome_trace('result.json')
         else:
             for nbatch, (img, img_size, bbox, label) in enumerate(train_dataloader):
-                if os.environ.get('USE_MKLDNN') == "1":
-                    img = img.to_mkldnn()
+                if os.environ.get('USE_MKLDNN') == "1" or os.environ.get('USE_BF16') == "1":
+                    if os.environ.get('USE_BF16') == "1":
+                        inp = inp.to_mkldnn(torch.bfloat16)
+                    else:
+                        inp = inp.to_mkldnn()
                 if use_cuda:
                     img = img.cuda()
                 img = Variable(img, requires_grad=False)

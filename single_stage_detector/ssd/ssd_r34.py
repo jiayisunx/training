@@ -107,7 +107,9 @@ class SSD_R34(nn.Module):
         ret = []
         features_shapes = []
         for s, l, c in zip(src, loc, conf):
-            if c(s).is_mkldnn:
+            if c(s).is_mkldnn and c(s).dtype == torch.bfloat16:
+                ret.append((l(s).to_dense(torch.float).view(s.size(0), 4, -1), c(s).to_dense(torch.float).view(s.size(0), self.label_num, -1)))
+            elif c(s).is_mkldnn:
                 ret.append((l(s).to_dense().view(s.size(0), 4, -1), c(s).to_dense().view(s.size(0), self.label_num, -1)))
             else:
                 ret.append((l(s).view(s.size(0), 4, -1), c(s).view(s.size(0), self.label_num, -1)))

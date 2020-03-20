@@ -22,7 +22,9 @@ if os.environ.get('TRAIN') == "1":
             bias = self.bias - self.running_mean * scale
             scale = scale.reshape(1, -1, 1, 1)
             bias = bias.reshape(1, -1, 1, 1)
-            if x.is_mkldnn:
+            if x.is_mkldnn and x.dtype == torch.bfloat16:
+                return (x.to_dense(torch.float) * scale + bias).to_mkldnn(torch.bfloat16)
+            elif x.is_mkldnn:
                 return (x.to_dense() * scale + bias).to_mkldnn()
             else:
                 return x * scale + bias

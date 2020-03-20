@@ -41,10 +41,15 @@ class RPNHead(nn.Module):
         logits = []
         bbox_reg = []
         for feature in x:
-            if os.environ.get('USE_MKLDNN') == "1":
-                t = F.relu(self.conv(feature.to_mkldnn()))
-                logits.append(self.cls_logits(t).to_dense())
-                bbox_reg.append(self.bbox_pred(t).to_dense())
+            if os.environ.get('USE_MKLDNN') == "1" or os.environ.get('USE_BF16') == "1":
+                if os.environ.get('USE_BF16') == "1":
+                    t = F.relu(self.conv(feature.to_mkldnn(torch.bfloat16)))
+                    logits.append(self.cls_logits(t).to_dense(torch.float))
+                    bbox_reg.append(self.bbox_pred(t).to_dense(torch.float))
+                else:
+                    t = F.relu(self.conv(feature.to_mkldnn()))
+                    logits.append(self.cls_logits(t).to_dense())
+                    bbox_reg.append(self.bbox_pred(t).to_dense())
             else:
                 t = F.relu(self.conv(feature))
                 logits.append(self.cls_logits(t))

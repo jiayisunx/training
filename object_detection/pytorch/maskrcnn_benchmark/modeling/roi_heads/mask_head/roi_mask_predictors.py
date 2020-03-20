@@ -1,5 +1,6 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 import os
+import torch
 from torch import nn
 from torch.nn import functional as F
 
@@ -34,8 +35,11 @@ class MaskRCNNC4Predictor(nn.Module):
 
     def forward(self, x):
         x = F.relu(self.conv5_mask(x))
-        if os.environ.get('USE_MKLDNN') == "1":
-            return self.mask_fcn_logits(x.to_mkldnn())
+        if os.environ.get('USE_MKLDNN') == "1" or os.environ.get('USE_BF16') == "1":
+            if os.environ.get('USE_BF16') == "1":
+                return self.mask_fcn_logits(x.to_mkldnn(torch.bfloat16))
+            else:
+                return self.mask_fcn_logits(x.to_mkldnn())
         else:
             return self.mask_fcn_logits(x)
 

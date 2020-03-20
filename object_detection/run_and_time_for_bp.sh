@@ -29,7 +29,7 @@ echo "STARTING TIMING RUN AT $start_fmt"
 # run benchmark
 set -x
 MODE=inference
-BATCH_SIZE=1
+BATCH_SIZE=4
 WARMUP=5
 ITERATIONS=${ITERATIONS:-10}
 PERFORMANCE_ONLY=False # (True)only test performance, no accuracy, (False) test performance and accuracy. 
@@ -50,6 +50,8 @@ do
 echo $i "instance"
 export PROFILE=0 #used to control profile, open(1) and close(0)
 export USE_MKLDNN=1 #used to enable MKLDNN OP, MKLDNN(1), CPU(0)
+export USE_BF16=1 #used to enable bfloat datatype, bfloat16(1), no_bfloat(0)
+
 startid=$(($i*$NUM_THREADS))
 endid=$(($i*$NUM_THREADS+$NUM_THREADS-1))
 export OMP_SCHEDULE=STATIC OMP_NUM_THREADS=$NUM_THREADS OMP_DISPLAY_ENV=TRUE OMP_PROC_BIND=TRUE GOMP_CPU_AFFINITY="$startid-$endid"  

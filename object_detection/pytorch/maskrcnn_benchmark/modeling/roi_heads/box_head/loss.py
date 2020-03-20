@@ -143,8 +143,10 @@ class FastRCNNLossComputation(object):
         regression_targets = cat(
             [proposal.get_field("regression_targets") for proposal in proposals], dim=0
         )
-        
-        if os.environ.get('USE_MKLDNN') == "1":
+
+        if class_logits.is_mkldnn and class_logits.dtype == torch.bfloat16:
+            classification_loss = F.cross_entropy(class_logits.to_dense(torch.float), labels)
+        elif class_logits.is_mkldnn:
             classification_loss = F.cross_entropy(class_logits.to_dense(), labels)
         else:
             classification_loss = F.cross_entropy(class_logits, labels)
@@ -160,7 +162,14 @@ class FastRCNNLossComputation(object):
             map_inds = 4 * labels_pos[:, None] + torch.tensor(
                 [0, 1, 2, 3], device=device)
 
-        if os.environ.get('USE_MKLDNN') == "1":
+        if box_regression.is_mkldnn and box_regression.dtype == torch.bfloat16:
+            box_loss = smooth_l1_loss(
+                box_regression.to_dense(torch.float)[sampled_pos_inds_subset[:, None], map_inds],
+                regression_targets[sampled_pos_inds_subset],
+                size_average=False,
+                beta=1,
+            )
+        elif box_regression.is_mkldnn:
             box_loss = smooth_l1_loss(
                 box_regression.to_dense()[sampled_pos_inds_subset[:, None], map_inds],
                 regression_targets[sampled_pos_inds_subset],

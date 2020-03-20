@@ -36,7 +36,7 @@ class MaskPostProcessor(nn.Module):
             results (list[BoxList]): one BoxList for each image, containing
                 the extra field mask
         """
-        if os.environ.get('USE_MKLDNN') == "1":
+        if x.is_mkldnn:
             mask_prob = x.to_dense().sigmoid()
         else:
             mask_prob = x.sigmoid()

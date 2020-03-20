@@ -74,9 +74,13 @@ class FPN2MLPFeatureExtractor(nn.Module):
         x = self.pooler(x, proposals)
         x = x.view(x.size(0), -1)
 
-        if os.environ.get('USE_MKLDNN') == "1":
-            x = F.relu(self.fc6(x.to_mkldnn()))
-            x = F.relu(self.fc7(x)).to_dense()
+        if os.environ.get('USE_MKLDNN') == "1" or os.environ.get('USE_BF16') == "1":
+            if os.environ.get('USE_BF16') == "1":
+                x = F.relu(self.fc6(x.to_mkldnn(torch.bfloat16)))
+                x = F.relu(self.fc7(x)).to_dense(torch.float)
+            else:
+                x = F.relu(self.fc6(x.to_mkldnn()))
+                x = F.relu(self.fc7(x)).to_dense()
         else:
             x = F.relu(self.fc6(x))
             x = F.relu(self.fc7(x))
