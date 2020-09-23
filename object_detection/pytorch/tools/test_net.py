@@ -39,8 +39,23 @@ def main():
                         help='profile iteration number')
     parser.add_argument('--warmup', type=int, default=5,
                         help='num of warmup')
+    parser.add_argument('--ipex', action='store_true', default=False,
+                        help='enable Intel_PyTorch_Extension')
+    parser.add_argument('--dnnl', action='store_true', default=False,
+                        help='enable Intel_PyTorch_Extension auto dnnl path')
+    parser.add_argument('--mix-precision', action='store_true', default=False,
+                        help='enable ipex mix precision')
 
     args = parser.parse_args()
+
+    if args.ipex:
+        import intel_pytorch_extension as ipex
+        if args.dnnl:
+            ipex.core.enable_auto_dnnl()
+        else:
+            ipex.core.disable_auto_dnnl()
+        if args.mix_precision:
+            ipex.enable_auto_optimization(mixed_dtype=torch.bfloat16, train=False)
 
     num_gpus = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
     distributed = num_gpus > 1
@@ -67,6 +82,10 @@ def main():
     logger.info("\n" + collect_env_info())
 
     model = build_detection_model(cfg)
+
+    if args.ipex:
+        cfg.merge_from_list(["MODEL.DEVICE", "dpcpp"])
+
     model.to(cfg.MODEL.DEVICE)
 
     output_dir = cfg.OUTPUT_DIR

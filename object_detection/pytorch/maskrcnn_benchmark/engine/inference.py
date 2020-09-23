@@ -43,7 +43,7 @@ def compute_on_dataset(model, data_loader, device, log_path, timer=None):
                     timer.tic()
                 output = model(images)
                 if timer:
-                    if not device.type == 'cpu':
+                    if not (device.type == 'cpu' or device.type == 'dpcpp'):
                         torch.cuda.synchronize()
                     timer.toc()
                 output = [o.to(cpu_device) for o in output]

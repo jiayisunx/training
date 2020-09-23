@@ -38,6 +38,7 @@ from maskrcnn_benchmark.utils.mlperf_logger import print_mlperf, generate_seeds,
 from mlperf_compliance import mlperf_log
 
 from torch.utils import mkldnn as mkldnn_utils
+import torch_ccl
 
 def test_and_exchange_map(tester, model, distributed):
     results = tester(model=model, distributed=distributed)
@@ -109,7 +110,7 @@ def cast_frozen_bn_to_half(module):
         cast_frozen_bn_to_half(child)
     return module
 
-def train(cfg, local_rank, distributed, log_path, warmup=0):
+def train(cfg, dist_backend, local_rank, distributed, log_path, warmup=0):
     # Model logging
     print_mlperf(key=mlperf_log.INPUT_BATCH_SIZE, value=cfg.SOLVER.IMS_PER_BATCH)
     print_mlperf(key=mlperf_log.BATCH_SIZE_TEST, value=cfg.TEST.IMS_PER_BATCH)
@@ -147,11 +148,14 @@ def train(cfg, local_rank, distributed, log_path, warmup=0):
     scheduler = make_lr_scheduler(cfg, optimizer)
 
     if distributed:
-        model = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[local_rank], output_device=local_rank,
-            # this should be removed if we update BatchNorm stats
-            broadcast_buffers=False,
-        )
+        if dist_backend == "ccl":
+            model = torch.nn.parallel.DistributedDataParallel(model)
+        else:        
+            model = torch.nn.parallel.DistributedDataParallel(
+                model, device_ids=[local_rank], output_device=local_rank,
+                # this should be removed if we update BatchNorm stats
+                broadcast_buffers=False,
+            )
 
     arguments = {}
     arguments["iteration"] = 0
@@ -241,11 +245,33 @@ def main():
                         help='profile iteration number')
     parser.add_argument('--warmup', type=int, default=5,
                         help='num of warmup')
+    parser.add_argument('--ipex', action='store_true', default=False,
+                        help='enable Intel_PyTorch_Extension')
+    parser.add_argument('--dnnl', action='store_true', default=False,
+                        help='enable Intel_PyTorch_Extension auto dnnl path')
+    parser.add_argument('--mix-precision', action='store_true', default=False,
+                        help='enable ipex mix precision')
+    parser.add_argument('--dist-backend', default='nccl', type=str,
+                    help='distributed backend')
 
     args = parser.parse_args()
 
+    if args.ipex:
+        import intel_pytorch_extension as ipex
+        if args.dnnl:
+            ipex.core.enable_auto_dnnl()
+        else:
+            ipex.core.disable_auto_dnnl()
+        if args.mix_precision:
+            ipex.enable_auto_optimization(mixed_dtype=torch.bfloat16, train=True)
+
+    if args.dist_backend == "ccl":
+       os.environ['RANK'] = os.environ.get('PMI_RANK', -1)
+       os.environ['WORLD_SIZE'] = os.environ.get('PMI_SIZE', -1)
+       args.world_size = int(os.environ['WORLD_SIZE'])
+
     num_gpus = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
-    args.distributed = num_gpus > 1
+    args.distributed = args.dist_backend == "ccl" or num_gpus > 1
 
     if is_main_process:
         # Setting logging file parameters for compliance logging
@@ -256,23 +282,29 @@ def main():
         mlperf_log.LOGGER.addHandler(mlperf_log._FILE_HANDLER)
 
     if args.distributed:
-        torch.cuda.set_device(args.local_rank)
-        torch.distributed.init_process_group(
-            backend="nccl", init_method="env://"
-        )
-        synchronize()
-
-        print_mlperf(key=mlperf_log.RUN_START)
-
-        # setting seeds - needs to be timed, so after RUN_START
-        if is_main_process():
+        if args.dist_backend == "ccl":
+            torch.distributed.init_process_group(backend=args.dist_backend)
+            args.rank = torch.distributed.get_rank()
+            print("###########args.rank={}".format(args.rank))
             master_seed = random.SystemRandom().randint(0, 2 ** 32 - 1)
-            seed_tensor = torch.tensor(master_seed, dtype=torch.float32, device=torch.device("cuda"))
         else:
-            seed_tensor = torch.tensor(0, dtype=torch.float32, device=torch.device("cuda"))
+            torch.cuda.set_device(args.local_rank)
+            torch.distributed.init_process_group(
+                backend="nccl", init_method="env://"
+            )
+            synchronize()
 
-        torch.distributed.broadcast(seed_tensor, 0)
-        master_seed = int(seed_tensor.item())
+            print_mlperf(key=mlperf_log.RUN_START)
+
+            # setting seeds - needs to be timed, so after RUN_START
+            if is_main_process():
+                master_seed = random.SystemRandom().randint(0, 2 ** 32 - 1)
+                seed_tensor = torch.tensor(master_seed, dtype=torch.float32, device=torch.device("cuda"))
+            else:
+                seed_tensor = torch.tensor(0, dtype=torch.float32, device=torch.device("cuda"))
+
+            torch.distributed.broadcast(seed_tensor, 0)
+            master_seed = int(seed_tensor.item())
     else:
         print_mlperf(key=mlperf_log.RUN_START)
         # random master seed, random.SystemRandom() uses /dev/urandom on Unix
@@ -303,7 +335,10 @@ def main():
 
     # todo sharath what if CPU
     # broadcast seeds from rank=0 to other workers
-    worker_seeds = broadcast_seeds(worker_seeds, device='cuda')
+    if args.ipex:
+        worker_seeds = broadcast_seeds(worker_seeds, device='dpcpp')
+    else:
+        worker_seeds = broadcast_seeds(worker_seeds, device='cuda')
 
     # Setting worker seeds
     logger.info("Worker {}: Setting seed {}".format(args.local_rank, worker_seeds[args.local_rank]))
@@ -319,7 +354,10 @@ def main():
         logger.info(config_str)
     logger.info("Running with config:\n{}".format(cfg))
 
-    model = train(cfg, args.local_rank, args.distributed, args.log, args.warmup)
+    if args.ipex:
+        cfg.merge_from_list(["MODEL.DEVICE", "dpcpp"])
+
+    model = train(cfg, args.dist_backend, args.local_rank, args.distributed, args.log, args.warmup)
 
     print_mlperf(key=mlperf_log.RUN_FINAL)
 
