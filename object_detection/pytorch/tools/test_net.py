@@ -45,6 +45,13 @@ def main():
                         help='enable Intel_PyTorch_Extension auto dnnl path')
     parser.add_argument('--mix-precision', action='store_true', default=False,
                         help='enable ipex mix precision')
+    parser.add_argument('--jit', action='store_true', default=False,
+                        help='enable Intel_PyTorch_Extension JIT path')
+    parser.add_argument("--int8", action='store_true', help='use int8', default=False)
+    parser.add_argument('--calibration', action='store_true', default=False,
+                    help='doing int8 calibration step')
+    parser.add_argument('--configure-dir', default='configure.json', type=str, metavar='PATH',
+                    help = 'path to int8 configures, default file name is configure.json')
 
     args = parser.parse_args()
 
@@ -56,6 +63,11 @@ def main():
             ipex.core.disable_auto_dnnl()
         if args.mix_precision:
             ipex.enable_auto_optimization(mixed_dtype=torch.bfloat16, train=False)
+        # jit path only enabled for inference
+        if args.jit:
+            ipex.core.enable_jit_opt()
+        else:
+            ipex.core.disable_jit_opt()
 
     num_gpus = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
     distributed = num_gpus > 1
@@ -88,6 +100,8 @@ def main():
 
     model.to(cfg.MODEL.DEVICE)
 
+    print(model)
+
     output_dir = cfg.OUTPUT_DIR
     checkpointer = DetectronCheckpointer(cfg, model, save_dir=output_dir)
     _ = checkpointer.load(cfg.MODEL.WEIGHT)
@@ -118,7 +132,11 @@ def main():
             output_folder=output_folder,
             log_path=args.log,
             warmup=args.warmup,
-            performance_only= (not cfg.PER_EPOCH_EVAL)
+            performance_only= (not cfg.PER_EPOCH_EVAL),
+            jit=args.jit,
+            int8=args.int8,
+            calibration=args.calibration,
+            configure_dir=args.configure_dir
         )
         synchronize()
 

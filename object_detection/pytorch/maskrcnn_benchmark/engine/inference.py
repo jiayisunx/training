@@ -15,24 +15,64 @@ from ..utils.comm import synchronize
 from ..utils.timer import Timer, get_time_str
 
 
-def compute_on_dataset(model, data_loader, device, log_path, timer=None):
+def compute_on_dataset(model, data_loader, device, log_path, timer=None, jit=False, int8=False, calibration=False, configure_dir='configure.json'):
     model.eval()
     if os.environ.get('USE_MKLDNN') == "1" and os.environ.get('USE_BF16') != "1":
         model = mkldnn_utils.to_mkldnn(model)
     results_dict = {}
     cpu_device = torch.device("cpu")
+    if jit:
+        with torch.no_grad():
+                for i, batch in enumerate(tqdm(data_loader)):
+                    images, targets, image_ids = batch
+                    images = images.to(device)
+                    traced_backbone = model(images, trace=True)
+                    break
 
+    # Int8 Calibration
+    if device.type == 'dpcpp' and int8 and calibration:
+        import intel_pytorch_extension as ipex
+        print("runing int8 calibration step")
+        conf = ipex.AmpConf(torch.int8)
+        with torch.no_grad():
+            for i, batch in enumerate(tqdm(data_loader)):
+                images, targets, image_ids = batch
+                images = images.to(device)
+                with ipex.AutoMixedPrecision(conf, running_mode="calibration"):
+                    if jit:
+                        output = model(images, traced_backbone=traced_backbone)
+                    else:
+                        output = model(images)
+                if i == 20:
+                    break
+            conf.save(configure_dir)
+    # Inference
+    print("runing inference step")
     if os.environ.get('PROFILE') == "1":
         for i, batch in enumerate(tqdm(data_loader)):
             with torch.autograd.profiler.profile() as prof:
                 images, targets, image_ids = batch
                 images = images.to(device)
                 with torch.no_grad():
-                    output = model(images)
+                    if device.type == 'dpcpp' and int8:
+                        import intel_pytorch_extension as ipex
+                        conf = ipex.AmpConf(torch.int8, configure_dir)
+                        with ipex.AutoMixedPrecision(conf, running_mode="inference"):
+                            if jit:
+                                output = model(images, traced_backbone=traced_backbone)
+                            else:
+                                output = model(images)
+                    else:
+                        if jit:
+                            output = model(images, traced_backbone=traced_backbone)
+                        else:
+                            output = model(images)
                     output = [o.to(cpu_device) for o in output]
                 results_dict.update(
                     {img_id: result for img_id, result in zip(image_ids, output)}
                 )
+            if i >= 5:
+                break
             prof.export_chrome_trace(os.path.join(log_path, 'result_' + str(i) + '.json'))
     else:
         for i, batch in enumerate(tqdm(data_loader)):
@@ -41,7 +81,19 @@ def compute_on_dataset(model, data_loader, device, log_path, timer=None):
             with torch.no_grad():
                 if timer:
                     timer.tic()
-                output = model(images)
+                if device.type == 'dpcpp' and int8:
+                    import intel_pytorch_extension as ipex
+                    conf = ipex.AmpConf(torch.int8, configure_dir)
+                    with ipex.AutoMixedPrecision(conf, running_mode="inference"):
+                        if jit:
+                            output = model(images, traced_backbone=traced_backbone)
+                        else:
+                            output = model(images)
+                else:
+                    if jit:
+                        output = model(images, traced_backbone=traced_backbone)
+                    else:
+                        output = model(images)
                 if timer:
                     if not (device.type == 'cpu' or device.type == 'dpcpp'):
                         torch.cuda.synchronize()
@@ -50,6 +102,8 @@ def compute_on_dataset(model, data_loader, device, log_path, timer=None):
             results_dict.update(
                 {img_id: result for img_id, result in zip(image_ids, output)}
             )
+            if i >= 5:
+                break
 
     return results_dict
 
@@ -88,7 +142,11 @@ def inference(
         output_folder=None,
         log_path='./log/',
         warmup=0,
-        performance_only=False
+        performance_only=False,
+        jit=False,
+        int8=False,
+        calibration=False,
+        configure_dir='configure.json'
 ):
     # convert to a torch.device for efficiency
     device = torch.device(device)
@@ -107,7 +165,7 @@ def inference(
     total_timer = Timer()
     inference_timer = Timer(warmup)
     total_timer.tic()
-    predictions = compute_on_dataset(model, data_loader, device, log_path, inference_timer)
+    predictions = compute_on_dataset(model, data_loader, device, log_path, inference_timer, jit, int8, calibration, configure_dir)
     # wait for all processes to complete before measuring the time
     synchronize()
     total_time = total_timer.toc(average=False)

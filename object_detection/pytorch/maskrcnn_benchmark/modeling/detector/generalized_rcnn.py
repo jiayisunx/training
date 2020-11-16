@@ -30,7 +30,7 @@ class GeneralizedRCNN(nn.Module):
         self.rpn = build_rpn(cfg)
         self.roi_heads = build_roi_heads(cfg)
 
-    def forward(self, images, targets=None):
+    def forward(self, images, trace=False, traced_backbone=None, targets=None):
         """
         Arguments:
             images (list[Tensor] or ImageList): images to be processed
@@ -46,7 +46,12 @@ class GeneralizedRCNN(nn.Module):
         if self.training and targets is None:
             raise ValueError("In training mode, targets should be passed")
         images = to_image_list(images)
-        features = self.backbone(images.tensors)
+        if trace:
+            return torch.jit.trace(self.backbone, images.tensors)
+        if traced_backbone:
+            features = traced_backbone(images.tensors)
+        else:
+            features = self.backbone(images.tensors)
         proposals, proposal_losses = self.rpn(images, features, targets)
         if self.roi_heads:
             x, result, detector_losses = self.roi_heads(features, proposals, targets)
