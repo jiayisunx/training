@@ -11,6 +11,7 @@ import time
 import random
 import numpy as np
 import logging
+import datetime
 from mlperf_logging.mllog import constants as mllog_const
 from mlperf_logger import ssd_print, broadcast_seeds
 from mlperf_logger import mllogger
@@ -73,6 +74,16 @@ def parse_args():
     parser.add_argument('--local_rank', default=os.getenv('LOCAL_RANK', 0), type=int,
                         help='Used for multi-process training. Can either be manually set '
                              'or automatically set by using \'python -m multiproc\'.')
+    parser.add_argument("--skip-test", dest="skip_test",
+                        help="Do not test the final model", action="store_true")
+    parser.add_argument('--ipex', action='store_true', default=False,
+                        help='enable Intel_PyTorch_Extension')
+    parser.add_argument('--dnnl', action='store_true', default=False,
+                        help='enable Intel_PyTorch_Extension auto dnnl path')
+    parser.add_argument('--mix-precision', action='store_true', default=False,
+                        help='enable ipex mix precision')
+    parser.add_argument('-i', '--iterations', default=0, type=int, metavar='N',
+                        help='number of total iterations to run')
 
     return parser.parse_args()
 
@@ -103,6 +114,8 @@ def coco_eval(model, val_dataloader, cocoGt, encoder, inv_map, threshold,
     model.eval()
     if use_cuda:
         model.cuda()
+    if args.ipex:
+        model = model.to(device = 'dpcpp')
     ret = []
 
     overlap_threshold = 0.50
@@ -118,6 +131,8 @@ def coco_eval(model, val_dataloader, cocoGt, encoder, inv_map, threshold,
         with torch.no_grad():
             if use_cuda:
                 img = img.cuda()
+            if args.ipex:
+                img = img.to(device = 'dpcpp')
             ploc, plabel = model(img)
 
             try:
@@ -266,9 +281,14 @@ def train300_mlperf_coco(args):
     ssd300.train()
     if use_cuda:
         ssd300.cuda()
+    if args.ipex:
+        ssd300 = ssd300.to(device = 'dpcpp')
+        print(ssd300)
     loss_func = Loss(dboxes)
     if use_cuda:
         loss_func.cuda()
+    if args.ipex:
+        loss_func = loss_func.to(device = 'dpcpp')
     if args.distributed:
         N_gpu = torch.distributed.get_world_size()
     else:
@@ -302,6 +322,8 @@ def train300_mlperf_coco(args):
     success = torch.zeros(1)
     if use_cuda:
         success = success.cuda()
+    if args.ipex:
+        success = success.to(device = 'dpcpp')
 
 
     if args.warmup:
@@ -320,6 +342,9 @@ def train300_mlperf_coco(args):
                   mllog_const.EPOCH_COUNT: args.epochs})
 
     optim.zero_grad()
+
+    start_training_time = time.time()
+
     for epoch in range(args.epochs):
         mllogger.start(
             key=mllog_const.EPOCH_START,
@@ -349,6 +374,10 @@ def train300_mlperf_coco(args):
                     fimg = fimg.cuda()
                     trans_bbox = trans_bbox.cuda()
                     flabel = flabel.cuda()
+                if args.ipex:
+                    fimg = fimg.to(device = 'dpcpp')
+                    trans_bbox = trans_bbox.to(device = 'dpcpp')
+                    flabel = flabel.to(device = 'dpcpp')
                 fimg = Variable(fimg, requires_grad=True)
                 ploc, plabel = ssd300(fimg)
                 gloc, glabel = Variable(trans_bbox, requires_grad=False), \
@@ -364,40 +393,50 @@ def train300_mlperf_coco(args):
             if args.rank == 0 and args.log_interval and not iter_num % args.log_interval:
                 print("Iteration: {:6d}, Loss function: {:5.3f}, Average Loss: {:.3f}"\
                     .format(iter_num, loss.item(), avg_loss))
+            if args.iterations != 0 and iter_num == args.iterations:
+                break
             iter_num += 1
 
+        if not args.skip_test:
+            if (args.val_epochs and (epoch+1) in args.val_epochs) or \
+               (args.val_interval and not (epoch+1) % args.val_interval):
+                if args.distributed:
+                    world_size = float(dist.get_world_size())
+                    for bn_name, bn_buf in ssd300.module.named_buffers(recurse=True):
+                        if ('running_mean' in bn_name) or ('running_var' in bn_name):
+                            dist.all_reduce(bn_buf, op=dist.ReduceOp.SUM)
+                            bn_buf /= world_size
+                            ssd_print(key=mllog_const.MODEL_BN_SPAN,
+                                value=bn_buf)
+                if args.rank == 0:
+                    if not args.no_save:
+                        print("")
+                        print("saving model...")
+                        torch.save({"model" : ssd300.state_dict(), "label_map": train_coco.label_info},
+                                   "./models/iter_{}.pt".format(iter_num))
 
-        if (args.val_epochs and (epoch+1) in args.val_epochs) or \
-           (args.val_interval and not (epoch+1) % args.val_interval):
-            if args.distributed:
-                world_size = float(dist.get_world_size())
-                for bn_name, bn_buf in ssd300.module.named_buffers(recurse=True):
-                    if ('running_mean' in bn_name) or ('running_var' in bn_name):
-                        dist.all_reduce(bn_buf, op=dist.ReduceOp.SUM)
-                        bn_buf /= world_size
-                        ssd_print(key=mllog_const.MODEL_BN_SPAN,
-                            value=bn_buf)
-            if args.rank == 0:
-                if not args.no_save:
-                    print("")
-                    print("saving model...")
-                    torch.save({"model" : ssd300.state_dict(), "label_map": train_coco.label_info},
-                               "./models/iter_{}.pt".format(iter_num))
+                    if coco_eval(ssd300, val_dataloader, cocoGt, encoder, inv_map,
+                                 args.threshold, epoch + 1, iter_num,
+                                 log_interval=args.log_interval,
+                                 nms_valid_thresh=args.nms_valid_thresh):
+                        success = torch.ones(1)
+                        if use_cuda:
+                            success = success.cuda()
+                        if args.ipex:
+                            success = success.to(device = 'dpcpp')
+                if args.distributed:
+                    dist.broadcast(success, 0)
+                if success[0]:
+                        return True
+                mllogger.end(
+                    key=mllog_const.EPOCH_STOP,
+                    metadata={mllog_const.EPOCH_NUM: epoch})
 
-                if coco_eval(ssd300, val_dataloader, cocoGt, encoder, inv_map,
-                             args.threshold, epoch + 1, iter_num,
-                             log_interval=args.log_interval,
-                             nms_valid_thresh=args.nms_valid_thresh):
-                    success = torch.ones(1)
-                    if use_cuda:
-                        success = success.cuda()
-            if args.distributed:
-                dist.broadcast(success, 0)
-            if success[0]:
-                    return True
-            mllogger.end(
-                key=mllog_const.EPOCH_STOP,
-                metadata={mllog_const.EPOCH_NUM: epoch})
+    total_training_time = time.time() - start_training_time
+    total_time_str = str(datetime.timedelta(seconds=total_training_time))
+    print("Total training time: {} ({:.4f} img / s)".format(
+        total_time_str, ((iter_num - args.iteration) * args.batch_size) / total_training_time))
+
     mllogger.end(
         key=mllog_const.BLOCK_STOP,
         metadata={mllog_const.FIRST_EPOCH_NUM: 1,
@@ -408,6 +447,15 @@ def train300_mlperf_coco(args):
 def main():
     mllogger.start(key=mllog_const.INIT_START)
     args = parse_args()
+
+    if args.ipex:
+        import intel_pytorch_extension as ipex
+        if args.dnnl:
+            ipex.core.enable_auto_dnnl()
+        else:
+            ipex.core.disable_auto_dnnl()
+        if args.mix_precision:
+            ipex.enable_auto_mixed_precision(mixed_dtype=torch.bfloat16, train=True)
 
     if args.local_rank == 0:
         if not os.path.isdir('./models'):
