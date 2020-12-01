@@ -115,7 +115,7 @@ def coco_eval(model, val_dataloader, cocoGt, encoder, inv_map, threshold,
     if use_cuda:
         model.cuda()
     if args.ipex:
-        model = model.to(device = 'dpcpp')
+        model = model.to(device = args.device)
     ret = []
 
     overlap_threshold = 0.50
@@ -132,7 +132,7 @@ def coco_eval(model, val_dataloader, cocoGt, encoder, inv_map, threshold,
             if use_cuda:
                 img = img.cuda()
             if args.ipex:
-                img = img.to(device = 'dpcpp')
+                img = img.to(device = args.device)
             ploc, plabel = model(img)
 
             try:
@@ -282,13 +282,13 @@ def train300_mlperf_coco(args):
     if use_cuda:
         ssd300.cuda()
     if args.ipex:
-        ssd300 = ssd300.to(device = 'dpcpp')
+        ssd300 = ssd300.to(device = args.device)
         print(ssd300)
     loss_func = Loss(dboxes)
     if use_cuda:
         loss_func.cuda()
     if args.ipex:
-        loss_func = loss_func.to(device = 'dpcpp')
+        loss_func = loss_func.to(device = args.device)
     if args.distributed:
         N_gpu = torch.distributed.get_world_size()
     else:
@@ -323,7 +323,7 @@ def train300_mlperf_coco(args):
     if use_cuda:
         success = success.cuda()
     if args.ipex:
-        success = success.to(device = 'dpcpp')
+        success = success.to(device = args.device)
 
 
     if args.warmup:
@@ -375,9 +375,9 @@ def train300_mlperf_coco(args):
                     trans_bbox = trans_bbox.cuda()
                     flabel = flabel.cuda()
                 if args.ipex:
-                    fimg = fimg.to(device = 'dpcpp')
-                    trans_bbox = trans_bbox.to(device = 'dpcpp')
-                    flabel = flabel.to(device = 'dpcpp')
+                    fimg = fimg.to(device = args.device)
+                    trans_bbox = trans_bbox.to(device = args.device)
+                    flabel = flabel.to(device = args.device)
                 fimg = Variable(fimg, requires_grad=True)
                 ploc, plabel = ssd300(fimg)
                 gloc, glabel = Variable(trans_bbox, requires_grad=False), \
@@ -423,7 +423,7 @@ def train300_mlperf_coco(args):
                         if use_cuda:
                             success = success.cuda()
                         if args.ipex:
-                            success = success.to(device = 'dpcpp')
+                            success = success.to(device = args.device)
                 if args.distributed:
                     dist.broadcast(success, 0)
                 if success[0]:
@@ -450,6 +450,7 @@ def main():
 
     if args.ipex:
         import intel_pytorch_extension as ipex
+        args.device = ipex.DEVICE
         if args.dnnl:
             ipex.core.enable_auto_dnnl()
         else:
