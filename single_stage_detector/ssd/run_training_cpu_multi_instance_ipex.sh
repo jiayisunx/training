@@ -43,7 +43,7 @@ for i in $(seq 1 $LAST_INSTANCE); do
     echo "### running on instance $i, numa node $numa_node_i, core list {$start_core_i, $end_core_i}..."
     numactl --physcpubind=$start_core_i-$end_core_i --membind=$numa_node_i python train.py \
         --epochs 1 --warmup-factor 0 --lr=2.5e-3 --no-save --threshold=0.23 \
-        --data /lustre/dataset/COCO2017 --skip-test -i 100 --ipex $ARGS 2>&1 | tee $LOG_i &
+        --data /lustre/dataset/COCO2017 --batch-size 48 --skip-test -i 100 --ipex $ARGS 2>&1 | tee $LOG_i &
 done
 
 numa_node_0=0
@@ -54,4 +54,4 @@ LOG_0=training_ipex_ins0.txt
 echo "### running on instance 0, numa node $numa_node_0, core list {$start_core_0, $end_core_0}...\n\n"
 numactl --physcpubind=$start_core_0-$end_core_0 --membind=$numa_node_0 python train.py \
         --epochs 1 --warmup-factor 0 --lr=2.5e-3 --no-save --threshold=0.23 \
-        --data /lustre/dataset/COCO2017 --skip-test -i 100 --ipex $ARGS 2>&1 | tee $LOG_0
+        --data /lustre/dataset/COCO2017 --batch-size 48 --skip-test -i 100 --ipex $ARGS 2>&1 | tee $LOG_0

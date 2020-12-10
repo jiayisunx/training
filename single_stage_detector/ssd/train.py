@@ -18,6 +18,29 @@ from mlperf_logger import mllogger
 
 _BASE_LR=2.5e-3
 
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self, name, fmt=':f'):
+        self.name = name
+        self.fmt = fmt
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+    def __str__(self):
+        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
+        return fmtstr.format(**self.__dict__)
+
 def parse_args():
     parser = ArgumentParser(description="Train Single Shot MultiBox Detector"
                                         " on COCO")
@@ -262,7 +285,7 @@ def train300_mlperf_coco(args):
                                   batch_size=args.batch_size,
                                   shuffle=(train_sampler is None),
                                   sampler=train_sampler,
-                                  num_workers=4)
+                                  num_workers=0)
     # set shuffle=True in DataLoader
     if args.rank==0:
         val_dataloader = DataLoader(val_coco,
@@ -343,7 +366,7 @@ def train300_mlperf_coco(args):
 
     optim.zero_grad()
 
-    start_training_time = time.time()
+    batch_time = AverageMeter('Time', ':6.3f')
 
     for epoch in range(args.epochs):
         mllogger.start(
@@ -367,6 +390,8 @@ def train300_mlperf_coco(args):
             bbox = torch.split(bbox, fragment_size)
             label = torch.split(label, fragment_size)
 
+            start = time.time()
+
             for (fimg, fbbox, flabel) in zip(img, bbox, label):
                 current_fragment_size = fimg.shape[0]
                 trans_bbox = fbbox.transpose(1,2).contiguous()
@@ -389,6 +414,10 @@ def train300_mlperf_coco(args):
             warmup_step(iter_num, current_lr)
             optim.step()
             optim.zero_grad()
+
+            # measure elapsed time
+            batch_time.update(time.time() - start)
+
             if not np.isinf(loss.item()): avg_loss = 0.999*avg_loss + 0.001*loss.item()
             if args.rank == 0 and args.log_interval and not iter_num % args.log_interval:
                 print("Iteration: {:6d}, Loss function: {:5.3f}, Average Loss: {:.3f}"\
@@ -432,10 +461,7 @@ def train300_mlperf_coco(args):
                     key=mllog_const.EPOCH_STOP,
                     metadata={mllog_const.EPOCH_NUM: epoch})
 
-    total_training_time = time.time() - start_training_time
-    total_time_str = str(datetime.timedelta(seconds=total_training_time))
-    print("Total training time: {} ({:.4f} img / s)".format(
-        total_time_str, ((iter_num - args.iteration) * args.batch_size) / total_training_time))
+    print('training performance %3.3f fps on %d iterations'%(args.batch_size/batch_time.avg, args.iterations))
 
     mllogger.end(
         key=mllog_const.BLOCK_STOP,
